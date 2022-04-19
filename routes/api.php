@@ -16,6 +16,7 @@ use Illuminate\Http\Request;
 Route::middleware('auth:api')->get('/user', function (Request $request) {
     return $request->user();
 });
-Route::post('/sheets', 'sheetsController@Sheets');
+Route::post('/enviaEmail', 'sheetsController@enviaEmail');
 Route::post('/backup', 'sheetsController@backup');
 Route::put('/clear', 'sheetsController@clear');
+Route::post('/conexao', 'sheetsController@conexaoDados');

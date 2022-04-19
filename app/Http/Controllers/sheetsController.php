@@ -8,46 +8,24 @@ use function GuzzleHttp\json_encode;
 
 class sheetsController extends Controller
 {
-    // public function conexaoDados()
-    // {
-    //     //CONEXAO COM O GOOGLE SHEETS
-    //     $client = new \Google_Client();
-    //     $client->setApplicationName('Google Sheets and PHP');
-    //     $client->setScopes([\Google_Service_Sheets::SPREADSHEETS]);
-    //     $client->setAccessType('offline');
-    //     $client->setAuthConfig(__DIR__ . '/credentials.json');
-    //     //BUSCANDO OS DADOS DAS PLANILHAS
-    //     $service = new \Google_Service_Sheets($client);
-    //     $spreadsheetId = array('1QH2jiFMqtKhBKiiVxKi23KEqAyyJPH8S_lmI8sYq2Jk');
-    // }
-    function Sheets()
+    private $values;
+    private $spreadsheetId;
+    private $response;
+    private $range;
+
+    public function enviaEmail()
     {
-        //CONEXAO COM O GOOGLE SHEETS
-        $client = new \Google_Client();
-        $client->setApplicationName('Google Sheets and PHP');
-        $client->setScopes([\Google_Service_Sheets::SPREADSHEETS]);
-        $client->setAccessType('offline');
-        $client->setAuthConfig(__DIR__ . '/credentials.json');
-
-        //BUSCANDO OS DADOS DAS PLANILHAS
-        $service = new \Google_Service_Sheets($client);
-        $spreadsheetId = array('1QH2jiFMqtKhBKiiVxKi23KEqAyyJPH8S_lmI8sYq2Jk'); // ID DAS PLANILHAS
-
-        foreach ($spreadsheetId as $va) {
-            $range = 'ENVIAR!A:S'; // NOME DA PLANILHA E INTERVALO
-            $response = $service->spreadsheets_values->get($va, $range);
-            $values = $response->getValues();
-
-            //VERIFICA SE TEM DADOS NA PLANILHA
-            if (empty($values[1])) {
+        try {
+            $this->conexaoDados();
+            if (empty($this->values[1])) {
                 dd("SEM DADOS NA PLANILHA");
             }
 
             //VERIFICA SE TEM CAMPO VAZIO
-            krsort($values); // ordena os valores em ordem decrescente
-            $keys = $values[0];
-            unset($values[0]);
-            foreach ($values as $k => $value) {
+            krsort($this->values); // ordena os valores em ordem decrescente
+            $keys = $this->values[0];
+            unset($this->values[0]);
+            foreach ($this->values as $k => $value) {
                 foreach ($keys as $key => $va) {
                     if (empty($value[$key])) {
                         $retorno['TRAVADO'][$value[0]] = $va;
@@ -74,18 +52,21 @@ class sheetsController extends Controller
                 $mail->Subject = 'Envio de email';
                 $mail->Body = 'Ola, Boa tarde. Segue sua senha email e login ' . $senha . " " . $login . ' para acessar o sistema.';
                 if (!$mail->send()) {
-                    $retorno['ERRO']['MENSAGEM'] = $mail->ErrorInfo;
+                    $retorno['ERROS']['MENSAGENS'] = $mail->ErrorInfo;
+                    $this->backup('ERROS!A:D', $email, $senha, $login);
+                    $this->clear($k);
                 } else {
                     $retorno['ENVIADOS'][$email] = true;
-                    $this->backup($email, $senha, $login);
+                    $this->backup('ENVIADOS!A:D', $email, $senha, $login);
                     $this->clear($k);
                 }
             }
+            return $retorno;
+        } catch (Exception $e) { 
+            return ["status" => false, "mensagem" => $e->getMessage()];
         }
-        return $retorno;
     }
-
-    public function backup($email, $login, $senha)
+    public function conexaoDados()
     {
         //CONEXAO COM O GOOGLE SHEETS
         $client = new \Google_Client();
@@ -93,8 +74,22 @@ class sheetsController extends Controller
         $client->setScopes([\Google_Service_Sheets::SPREADSHEETS]);
         $client->setAccessType('offline');
         $client->setAuthConfig(__DIR__ . '/credentials.json');
-        $service = new \Google_Service_Sheets($client);
-        $range = 'ENVIADOS!A:D';
+
+        //BUSCANDO OS DADOS DAS PLANILHAS
+        $this->service = new \Google_Service_Sheets($client);
+        $this->spreadsheetId = array('1QH2jiFMqtKhBKiiVxKi23KEqAyyJPH8S_lmI8sYq2Jk'); // ID DAS PLANILHAS
+        foreach ($this->spreadsheetId as $va) {
+            $this->range = 'ENVIAR!A:S'; // NOME DA PLANILHA E INTERVALO
+            $this->response = $this->service->spreadsheets_values->get($va, $this->range);
+            $this->values = $this->response->getValues();
+        }
+    }
+
+
+    public function backup($rang, $email, $login, $senha)
+    {
+        $this->conexaoDados();
+        $this->range = $rang;
         $map = [
             'EMAIL' => $email,
             'SENHA' => $login,
@@ -104,7 +99,6 @@ class sheetsController extends Controller
             [
                 json_encode($map)
             ],
-            // Additional rows ...
         ];
         $body = new \Google_Service_Sheets_ValueRange([
             'majorDimension' => 'COLUMNS',
@@ -113,32 +107,14 @@ class sheetsController extends Controller
         $params = [
             'valueInputOption' => "USER_ENTERED"
         ];
-
-        $result = $service->spreadsheets_values->append(
-            '1QH2jiFMqtKhBKiiVxKi23KEqAyyJPH8S_lmI8sYq2Jk',
-            $range,
-            $body,
-            $params
-        );
+        $result = $this->service->spreadsheets_values->append($this->spreadsheetId, $this->range, $body, $params);
     }
     public function clear($k)
     {
         $v = $k + 1;
-        //CONEXAO COM O GOOGLE SHEETS
-        $client = new \Google_Client();
-        $client->setApplicationName('Google Sheets and PHP');
-        $client->setScopes([\Google_Service_Sheets::SPREADSHEETS]);
-        $client->setAccessType('offline');
-        $client->setAuthConfig(__DIR__ . '/credentials.json');
-        $service = new \Google_Service_Sheets($client);
-
-        $spreadsheetId = '1QH2jiFMqtKhBKiiVxKi23KEqAyyJPH8S_lmI8sYq2Jk';
-
-
-        $range = 'ENVIAR!A' . $v . ':C' . $v;
-
+        $this->conexaoDados();
+        $this->range = 'ENVIAR!A' . $v . ':C' . $v;
         $requestBody = new \Google_Service_Sheets_ClearValuesRequest();
-
-        $response = $service->spreadsheets_values->clear($spreadsheetId, $range, $requestBody);
+        $response = $this->service->spreadsheets_values->clear($this->spreadsheetId, $this->range, $requestBody);
     }
 }
